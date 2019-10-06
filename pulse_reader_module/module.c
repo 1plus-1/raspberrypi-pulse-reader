@@ -312,22 +312,21 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 				if(p_dev->io_stats[i].gpio == add_io.gpio
 					&& p_dev->io_stats[i].used) {
 					//already added, just reuse
+					spin_unlock(&p_dev->rlock);
 					printk(KERN_INFO "pulse_reader_ioctl request ADD_IO io already added\n");
-					break;
+					return 0;
 				}
 			}
 
 			//check available item if IO was not added
+			for(i=0; i<MAX_IO_NUMBER; i++) {
+				if(!(p_dev->io_stats[i].used))
+					break;
+			}
 			if(i == MAX_IO_NUMBER) {
-				for(i=0; i<MAX_IO_NUMBER; i++) {
-					if(!(p_dev->io_stats[i].used))
-						break;
-				}
-				if(i == MAX_IO_NUMBER) {
-					spin_unlock(&p_dev->rlock);
-					printk(KERN_ERR "pulse_reader_ioctl ADD_IO exceed max io number\n");
-					return -EFAULT;
-				}
+				spin_unlock(&p_dev->rlock);
+				printk(KERN_ERR "pulse_reader_ioctl ADD_IO exceed max io number\n");
+				return -EFAULT;
 			}
 
 			//reset data
