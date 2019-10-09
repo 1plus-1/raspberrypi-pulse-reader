@@ -15,8 +15,6 @@
 #define PULSE_READER_MAJOR		240
 #define PULSE_READER_MINOR		0
 
-#define DEVICE_NAME		"pulse_reader"
-
 //maxium io supported
 #define	MAX_IO_NUMBER		10
 
@@ -86,6 +84,8 @@ struct pulse_reader_dev_t {
 
 	struct hrtimer pulse_timer;
 };
+
+static struct class *pulse_reader_class;
 
 struct pulse_reader_dev_t *pulse_reader_dev;
 
@@ -474,11 +474,19 @@ int pulse_reader_init(void)
 	int result = -1;
 	dev_t devno = MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR);
 
-	result = register_chrdev_region(devno, 1, DEVICE_NAME);
+	result = register_chrdev_region(devno, 1, "/dev/pulse_reader");
 	if (result < 0) {
 		printk(KERN_ERR "pulse_reader_init register failed!result=%d\n",result);
 		return result;
 	}
+
+	pulse_reader_class = class_create(THIS_MODULE, "pulse_reader");
+	if (IS_ERR(pulse_reader_class)) {
+		result = PTR_ERR(pulse_reader_class);
+		goto fail_create_dev;
+	}
+	device_create(pulse_reader_class, NULL,
+		MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR), NULL, "pulse_reader");
 
 	pulse_reader_dev = kmalloc(sizeof(struct pulse_reader_dev_t), GFP_KERNEL);
 	if (!pulse_reader_dev)
@@ -492,12 +500,14 @@ int pulse_reader_init(void)
 	pulse_reader_dev->calculate_period = DEFALT_CALCULATE_PERIOD;//default period is 10ms
 	hrtimer_init(&pulse_reader_dev->pulse_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	pulse_reader_dev->pulse_timer.function = pulse_reader_timer_cb;
-	hrtimer_start(&pulse_reader_dev->pulse_timer, ms_to_ktime(pulse_reader_dev->calculate_period), HRTIMER_MODE_REL);
+	hrtimer_start(&pulse_reader_dev->pulse_timer,
+		ms_to_ktime(pulse_reader_dev->calculate_period), HRTIMER_MODE_REL);
 
 	pulse_reader_setup_cdev(pulse_reader_dev, 0);
 
 	return 0;
 
+fail_create_dev:
 fail_malloc:
 	unregister_chrdev_region(devno, 1);
 	return result;
@@ -518,6 +528,9 @@ void pulse_reader_exit(void)
 				gpio_free(p_stat->gpio);
 			}
 		}
+
+		device_destroy(pulse_reader_class, MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR));
+		class_destroy(pulse_reader_class);
 
 		cdev_del(&pulse_reader_dev->cdev);
 		kfree(pulse_reader_dev);
