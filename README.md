@@ -4,6 +4,7 @@ RaspberryPi kernel driver for reading PPM/PWM duty and cycle. Say if you want to
 This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.66 kernel. But it should work with other versions.
 
 ## How to build
+- If coincidently you're having 4.19.66 kernel installed then just skip to the Usage part. The .ko file is already provided.
 - Download [kernel](https://github.com/raspberrypi/linux) and [toolchain](https://github.com/raspberrypi/tools). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
 - Follow the instruction to build the kernel.
 - Clone the source code of this repo and run below command to build the .ko file
