@@ -12,6 +12,8 @@
 #include <linux/sort.h>
 #include <linux/uaccess.h>
 
+//#define PULSE_READER_DEBUG
+
 #define PULSE_READER_MAJOR		240
 #define PULSE_READER_MINOR		0
 
@@ -154,9 +156,11 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 		if(!(p_stat->used) || p_stat->pulse_stopped)
 			continue;
 
-		//printk(KERN_DEBUG  "pulse_reader_timer_cb lastc=%u, laste=%u\n",
-		//	(uint32_t)ktime_to_us(p_stat->last_cycle),
-		//	(uint32_t)ktime_to_us(p_stat->last_edge));
+#ifdef PULSE_READER_DEBUG
+		printk(KERN_DEBUG  "pulse_reader_timer_cb lastc=%u, laste=%u\n",
+			(uint32_t)ktime_to_us(p_stat->last_cycle),
+			(uint32_t)ktime_to_us(p_stat->last_edge));
+#endif
 
 		t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
 		if(p_stat->last_cycle != 0) {
@@ -180,10 +184,12 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 		//set the last edge position to current
 		p_stat->last_edge = t_current;
 
-		//printk(KERN_DEBUG  "pulse_reader_timer_cb cur=%u, lastc=%u, laste=%u\n",
-		//	(uint32_t)ktime_to_us(t_current),
-		//	(uint32_t)ktime_to_us(p_stat->last_cycle),
-		//	(uint32_t)ktime_to_us(p_stat->last_edge));
+#ifdef PULSE_READER_DEBUG
+		printk(KERN_DEBUG  "pulse_reader_timer_cb cur=%u, lastc=%u, laste=%u\n",
+			(uint32_t)ktime_to_us(t_current),
+			(uint32_t)ktime_to_us(p_stat->last_cycle),
+			(uint32_t)ktime_to_us(p_stat->last_edge));
+#endif
 
 		//calculate duty and cycle for every timer expiration
 		for(j=0; j<p_stat->filter_win_size; j++) {
@@ -197,13 +203,15 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 		p_stat->duty = ktime_to_us(duty[p_stat->filter_win_size/2]);
 		p_stat->cycle = ktime_to_us(cycle[p_stat->filter_win_size/2]);
 
-		//printk(KERN_DEBUG  "pulse_reader_timer_cb %d-%d, %d-%d, %d-%d\n",
-		//	(uint32_t)ktime_to_us(duty[0]),
-		//	(uint32_t)ktime_to_us(cycle[0]),
-		//	(uint32_t)ktime_to_us(duty[1]),
-		//	(uint32_t)ktime_to_us(cycle[1]),
-		//	(uint32_t)ktime_to_us(duty[2]),
-		//	(uint32_t)ktime_to_us(cycle[2]));
+#ifdef PULSE_READER_DEBUG
+		printk(KERN_DEBUG  "pulse_reader_timer_cb %d-%d, %d-%d, %d-%d\n",
+			(uint32_t)ktime_to_us(duty[0]),
+			(uint32_t)ktime_to_us(cycle[0]),
+			(uint32_t)ktime_to_us(duty[1]),
+			(uint32_t)ktime_to_us(cycle[1]),
+			(uint32_t)ktime_to_us(duty[2]),
+			(uint32_t)ktime_to_us(cycle[2]));
+#endif
 	}
 	spin_unlock(&p_dev->rlock);
 
@@ -237,13 +245,15 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
 	t_width = ktime_sub(t_current, p_stat->last_edge);
 
-	//printk(KERN_DEBUG "pulse_reader_io_interrupt gpio_lvl=%d, tcur=%u, width=%u, laste=%u, lastc=%u, ncurrent=%u\n",
-	//	gpio_get_value(p_stat->gpio),
-	//	(uint32_t)ktime_to_us(t_current),
-	//	(uint32_t)ktime_to_us(t_width),
-	//	(uint32_t)ktime_to_us(p_stat->last_edge),
-	//	(uint32_t)ktime_to_us(p_stat->last_cycle),
-	//	p_stat->n_current);
+#ifdef PULSE_READER_DEBUG
+	printk(KERN_DEBUG "pulse_reader_io_interrupt gpio_lvl=%d, tcur=%u, width=%u, laste=%u, lastc=%u, ncurrent=%u\n",
+		gpio_get_value(p_stat->gpio),
+		(uint32_t)ktime_to_us(t_current),
+		(uint32_t)ktime_to_us(t_width),
+		(uint32_t)ktime_to_us(p_stat->last_edge),
+		(uint32_t)ktime_to_us(p_stat->last_cycle),
+		p_stat->n_current);
+#endif
 
 	p_stat->last_edge = t_current;
 
@@ -259,20 +269,24 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 		//raising edge, calculate the negative pulse width
 		p_stat->pulse_n[p_stat->n_current] = t_width;
 		if(p_stat->pulse_p[p_stat->n_current] != 0) {
-			//printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, lastc=%u, ncurrent=%u\n",
-			//	(uint32_t)ktime_to_us(t_width),
-			//	(uint32_t)ktime_to_us(p_stat->pulse_p[p_stat->n_current]),
-			//	(uint32_t)ktime_to_us(p_stat->pulse_n[p_stat->n_current]));
+#ifdef PULSE_READER_DEBUG
+			printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, lastc=%u, ncurrent=%u\n",
+				(uint32_t)ktime_to_us(t_width),
+				(uint32_t)ktime_to_us(p_stat->pulse_p[p_stat->n_current]),
+				(uint32_t)ktime_to_us(p_stat->pulse_n[p_stat->n_current]));
+#endif
 			p_stat->n_current++;
 		}
 	} else {
 		//falling edge, calculate the positive pulse width
 		p_stat->pulse_p[p_stat->n_current] = t_width;
 		if(p_stat->pulse_n[p_stat->n_current] != 0) {
-			//printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, p=%u, n=%u\n",
-			//	(uint32_t)ktime_to_us(t_width),
-			//	(uint32_t)ktime_to_us(p_stat->pulse_p[p_stat->n_current]),
-			//	(uint32_t)ktime_to_us(p_stat->pulse_n[p_stat->n_current]));
+#ifdef PULSE_READER_DEBUG
+			printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, p=%u, n=%u\n",
+				(uint32_t)ktime_to_us(t_width),
+				(uint32_t)ktime_to_us(p_stat->pulse_p[p_stat->n_current]),
+				(uint32_t)ktime_to_us(p_stat->pulse_n[p_stat->n_current]));
+#endif
 			p_stat->n_current++;
 		}
 	}
@@ -427,14 +441,18 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			spin_lock(&p_dev->rlock);
 			for(j=0; j<get_io_stat.n_ios; j++) {
 				for(i=0; i<MAX_IO_NUMBER; i++) {
-					if(p_dev->io_stats[i].gpio == get_io_stat.io_stat_user[j].gpio)
+					p_stat = &(p_dev->io_stats[i]);
+					if(p_stat->gpio == get_io_stat.io_stat_user[j].gpio
+						&& p_stat->used) {
+						get_io_stat.io_stat_user[j].duty = p_stat->duty;
+						get_io_stat.io_stat_user[j].cycle = p_stat->cycle;
+#ifdef PULSE_READER_DEBUG
+						printk(KERN_DEBUG "pulse_reader_ioctl gpio=%u, duty=%u, cycle=%u\n",
+							p_stat->gpio, p_stat->duty, p_stat->cycle);
+#endif
 						break;
+					}
 				}
-				if(i == MAX_IO_NUMBER)
-					continue;
-				p_stat = &(p_dev->io_stats[i]);
-				get_io_stat.io_stat_user[j].duty = p_stat->duty;
-				get_io_stat.io_stat_user[j].cycle = p_stat->cycle;
 			}
 			spin_unlock(&p_dev->rlock);
 
