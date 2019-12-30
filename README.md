@@ -6,6 +6,14 @@ This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.6
 ## How to build
 - If coincidently you're having 4.19.66 kernel installed then just skip to the Usage part. The .ko file is already provided as pulse_reader.ko in root folder.
 
+  ### Compile on Pi(Recommanded)
+  - Clone the source code to pi and run following commands(for Raspbian only).
+  ```
+  sudo apt-get install build-essential raspberrypi-kernel-headers
+  cd /home/user/raspberrypi-pulse-reader/pulse_reader_module
+  make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
+  ```
+
   ### Cross Compiling
   - Download [kernel](https://github.com/raspberrypi/linux) and [toolchain](https://github.com/raspberrypi/tools). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
   - Follow the instruction to build the kernel.
@@ -13,14 +21,7 @@ This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.6
   ```
   make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=<toolchain foler>/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/arm-linux-gnueabihf-
   ```
-
-  ### Compile on Pi
-  - Clone the source code to pi and run:
-  ```
-  sudo apt-get install build-essential raspberrypi-kernel-headers
-  cd /home/user/raspberrypi-pulse-reader/pulse_reader_module
-  make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
-  ```
+  - Not recommanded! Cross compiled module causes kernel panic in some certain circumstance by unknown reason.
 
 ## Usage
 - Copy pulse_reader.ko to pi and run insmod:
