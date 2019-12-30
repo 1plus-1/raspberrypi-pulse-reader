@@ -177,7 +177,9 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 				p_stat->last_cycle = 0;
 				p_stat->last_edge = 0;
 				p_stat->pulse_stopped = true;
+#ifdef PULSE_READER_DEBUG
 				printk(KERN_DEBUG  "pulse_reader_timer_cb pulse on gpio %d stopped\n", p_stat->gpio);
+#endif
 			}
 		} else {
 			//record the part of time in last period
