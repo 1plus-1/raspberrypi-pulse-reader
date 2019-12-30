@@ -4,13 +4,23 @@ RaspberryPi kernel driver for reading PPM/PWM duty and cycle. Say if you want to
 This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.66 kernel. But it should work with other versions.
 
 ## How to build
-- If coincidently you're having 4.19.66 kernel installed then just skip to the Usage part. The .ko file is already provided.
-- Download [kernel](https://github.com/raspberrypi/linux) and [toolchain](https://github.com/raspberrypi/tools). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
-- Follow the instruction to build the kernel.
-- Clone the source code of this repo and run below command to build the .ko file
-```
-make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=<toolchain foler>/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/arm-linux-gnueabihf-
-```
+- If coincidently you're having 4.19.66 kernel installed then just skip to the Usage part. The .ko file is already provided as pulse_reader.ko in root folder.
+
+  ### Cross Compiling
+  - Download [kernel](https://github.com/raspberrypi/linux) and [toolchain](https://github.com/raspberrypi/tools). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
+  - Follow the instruction to build the kernel.
+  - Clone the source code of this repo and run below command to build the .ko file
+  ```
+  make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=<toolchain foler>/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/arm-linux-gnueabihf-
+  ```
+
+  ### Compile on Pi
+  - Clone the source code to pi and run:
+  ```
+  sudo apt-get install build-essential raspberrypi-kernel-headers
+  cd /home/user/raspberrypi-pulse-reader/pulse_reader_module
+  make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
+  ```
 
 ## Usage
 - Copy pulse_reader.ko to pi and run insmod:
@@ -19,7 +29,7 @@ sudo insmod pulse_reader.ko
 ```
 - Or load module at system startup:
 ```
-sudo cp pulse_reader.ko /lib/modules/4.19.66-v7+/
+sudo cp pulse_reader.ko /lib/modules/$(uname -r)/
 sudo echo pulse_reader > /etc/modules-load.d/pulse_reader.conf
 sudo reboot
 ```

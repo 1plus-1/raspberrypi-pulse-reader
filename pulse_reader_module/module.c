@@ -168,6 +168,8 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 			p_stat->last_cycle = ktime_add(ms_to_ktime(p_dev->calculate_period), p_stat->last_cycle);
 			if(ktime_compare(p_stat->last_cycle, ms_to_ktime(MAX_PULSE_WIDTH)) > 0) {
 				//pulse stopped, clear the data to 0
+				p_stat->duty = 0;
+				p_stat->cycle = 0;
 				for(j=0; j<p_stat->filter_win_size; j++) {
 					p_stat->pulse_p[j] = 0;
 					p_stat->pulse_n[j] = 0;
