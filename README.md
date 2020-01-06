@@ -1,12 +1,12 @@
 # raspberrypi-pulse-reader
 RaspberryPi kernel driver for reading PPM/PWM duty and cycle. Say if you want to build a car with pi and don't want an additional Arduino board for reading motor speed feedback and RC PPM, you can used this driver.
 
-This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.66 kernel. But it should work with other versions.
+This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.66/4.19.75 kernel. But it should work with other versions.
 
 ## How to build
-- If coincidently you're having 4.19.66 kernel installed then just skip to the Usage part. The .ko file is already provided as pulse_reader.ko in root folder.
+- If coincidently you're having 4.19.66 or 4.19.75 kernel installed then just skip to the Usage part. The .ko files are already provided as pulse_reader_[kernel version].ko in root folder.
 
-  ### Compile on Pi(Recommanded)
+  ### Compile on Pi
   - Clone the source code to pi and run following commands(for Raspbian only).
   ```
   sudo apt-get install build-essential raspberrypi-kernel-headers
@@ -21,7 +21,6 @@ This module is tested with Raspberry Pi 2 Model B with Rasbian system and 4.19.6
   ```
   make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=<toolchain foler>/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/arm-linux-gnueabihf-
   ```
-  - Not recommanded! Cross compiled module causes kernel panic in some certain circumstance by unknown reason.
 
 ## Usage
 - Copy pulse_reader.ko to pi and run insmod:
