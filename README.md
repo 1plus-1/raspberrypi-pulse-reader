@@ -31,6 +31,7 @@ sudo insmod pulse_reader.ko
 ```
 sudo cp pulse_reader.ko /lib/modules/$(uname -r)/
 sudo echo pulse_reader > /etc/modules-load.d/pulse_reader.conf
+sudo depmod -a
 sudo reboot
 ```
 - Change the mojor device number in module.c if 240 is occupied.
