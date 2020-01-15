@@ -11,6 +11,9 @@
 #include <linux/hrtimer.h>
 #include <linux/sort.h>
 #include <linux/uaccess.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/slab.h>
 
 //#define PULSE_READER_DEBUG
 
@@ -123,11 +126,11 @@ static void pulse_reader_stat_reset(io_stat_t *p_stat)
 	p_stat->cycle = 0;
 
 	for(i=0; i<MAX_FILTER_WINDOW_SIZE; i++) {
-		p_stat->pulse_p[i] = 0;
-		p_stat->pulse_n[i] = 0;
+		p_stat->pulse_p[i] = ktime_set(0, 0);
+		p_stat->pulse_n[i] = ktime_set(0, 0);
 	}
-	p_stat->last_edge = 0;
-	p_stat->last_cycle = 0;
+	p_stat->last_edge = ktime_set(0, 0);
+	p_stat->last_cycle = ktime_set(0, 0);
 	p_stat->n_current = 0;
 	p_stat->pulse_stopped = true;
 }
@@ -163,7 +166,7 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 #endif
 
 		t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
-		if(p_stat->last_cycle != 0) {
+		if(ktime_to_us(p_stat->last_cycle) != 0) {
 			//none zero means there's no edge in last period
 			p_stat->last_cycle = ktime_add(ms_to_ktime(p_dev->calculate_period), p_stat->last_cycle);
 			if(ktime_compare(p_stat->last_cycle, ms_to_ktime(MAX_PULSE_WIDTH)) > 0) {
@@ -171,11 +174,11 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 				p_stat->duty = 0;
 				p_stat->cycle = 0;
 				for(j=0; j<p_stat->filter_win_size; j++) {
-					p_stat->pulse_p[j] = 0;
-					p_stat->pulse_n[j] = 0;
+					p_stat->pulse_p[j] = ktime_set(0, 0);
+					p_stat->pulse_n[j] = ktime_set(0, 0);
 				}
-				p_stat->last_cycle = 0;
-				p_stat->last_edge = 0;
+				p_stat->last_cycle = ktime_set(0, 0);
+				p_stat->last_edge = ktime_set(0, 0);
 				p_stat->pulse_stopped = true;
 #ifdef PULSE_READER_DEBUG
 				printk(KERN_DEBUG  "pulse_reader_timer_cb pulse on gpio %d stopped\n", p_stat->gpio);
@@ -262,9 +265,9 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	p_stat->last_edge = t_current;
 
 	//if there's part of the pulse in last timer cycle, add it
-	if(p_stat->last_cycle != 0) {
+	if(ktime_to_us(p_stat->last_cycle) != 0) {
 		t_width = ktime_add(t_width, p_stat->last_cycle);
-		p_stat->last_cycle = 0;
+		p_stat->last_cycle = ktime_set(0, 0);
 	}
 
 	//store width in either positive pulse array or negative array
@@ -272,7 +275,7 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	if(gpio_get_value(p_stat->gpio)) {
 		//raising edge, calculate the negative pulse width
 		p_stat->pulse_n[p_stat->n_current] = t_width;
-		if(p_stat->pulse_p[p_stat->n_current] != 0) {
+		if(ktime_to_us(p_stat->pulse_p[p_stat->n_current]) != 0) {
 #ifdef PULSE_READER_DEBUG
 			printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, lastc=%u, ncurrent=%u\n",
 				(uint32_t)ktime_to_us(t_width),
@@ -284,7 +287,7 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	} else {
 		//falling edge, calculate the positive pulse width
 		p_stat->pulse_p[p_stat->n_current] = t_width;
-		if(p_stat->pulse_n[p_stat->n_current] != 0) {
+		if(ktime_to_us(p_stat->pulse_n[p_stat->n_current]) != 0) {
 #ifdef PULSE_READER_DEBUG
 			printk(KERN_DEBUG "pulse_reader_io_interrupt width=%u, p=%u, n=%u\n",
 				(uint32_t)ktime_to_us(t_width),
