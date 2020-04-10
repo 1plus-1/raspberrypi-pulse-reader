@@ -51,8 +51,8 @@ typedef struct
 typedef struct
 {
 	uint32_t gpio;
-	uint32_t duty;
-	uint32_t cycle;
+	uint32_t duty;//in nanosecond
+	uint32_t cycle;//in nanosecond
 } io_stat_user_t;
 
 typedef struct
@@ -67,9 +67,6 @@ typedef struct
 	uint32_t filter_win_size;
 	uint32_t irq;
 	bool used;
-
-	uint32_t duty;//in micro second
-	uint32_t cycle;//in micro second
 
 	//runtime stats
 	uint8_t level;
@@ -125,9 +122,6 @@ int pulse_reader_release(struct inode *inode, struct file *filp)
 static void pulse_reader_stat_reset(io_stat_t *p_stat)
 {
 	int i;
-	p_stat->duty = 0;
-	p_stat->cycle = 0;
-
 	p_stat->level = gpio_get_value(p_stat->gpio);
 	for(i=0; i<MAX_FILTER_WINDOW_SIZE; i++) {
 		p_stat->pulse_p[i] = ktime_set(0, 0);
@@ -146,7 +140,7 @@ static int pulse_reader_sort_cmp_func(const void *opp1, const void *opp2)
 	return ktime_compare(*t1, *t2);
 }
 
-static void pulse_reader_filter_and_calc(io_stat_t *p_stat)
+static void pulse_reader_filter_and_calc(io_stat_t *p_stat, uint32_t *duty, uint32_t *cycle)
 {
 #ifdef PULSE_READER_DEBUG
 	printk(KERN_DEBUG  "pulse_reader_filter_and_calc before p-n=%u-%u %u-%u %u-%u %u-%u %u-%u\n",
@@ -167,8 +161,8 @@ static void pulse_reader_filter_and_calc(io_stat_t *p_stat)
 	sort((void*)p_stat->pulse_n, p_stat->filter_win_size, sizeof(ktime_t), pulse_reader_sort_cmp_func, NULL);
 
 	//get the median value and calculate cycle
-	p_stat->duty = ktime_to_us(p_stat->pulse_p[p_stat->filter_win_size/2]);
-	p_stat->cycle = ktime_to_us(ktime_add(p_stat->pulse_p[p_stat->filter_win_size/2],
+	*duty = ktime_to_ns(p_stat->pulse_p[p_stat->filter_win_size/2]);
+	*cycle = ktime_to_ns(ktime_add(p_stat->pulse_p[p_stat->filter_win_size/2],
 		p_stat->pulse_n[p_stat->filter_win_size/2]));
 
 #ifdef PULSE_READER_DEBUG
@@ -192,11 +186,14 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 	unsigned long irq_flags;
 	struct pulse_reader_dev_t *p_dev =
 		container_of(timer, struct pulse_reader_dev_t, pulse_timer);
+	ktime_t t_current;
+
+	//get current time
+	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
 
 	spin_lock_irqsave(&p_dev->rlock, irq_flags);
 	for(i=0; i<MAX_IO_NUMBER; i++) {
 		io_stat_t *p_stat;
-		ktime_t t_current;
 
 		p_stat = &(p_dev->io_stats[i]);
 
@@ -209,8 +206,7 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 			(uint32_t)ktime_to_us(p_stat->last_edge));
 #endif
 
-		t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
-		if(ktime_to_us(p_stat->last_cycle) != 0) {
+		if(ktime_to_ns(p_stat->last_cycle) != 0) {
 			//none zero means there's no edge in last period
 			p_stat->last_cycle = ktime_add(ms_to_ktime(p_dev->calculate_period), p_stat->last_cycle);
 			if(ktime_compare(p_stat->last_cycle, ms_to_ktime(MAX_PULSE_WIDTH)) > 0) {
@@ -251,6 +247,9 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	struct pulse_reader_dev_t *p_dev = (struct pulse_reader_dev_t *) dev_id;
 	uint8_t new_level;
 
+	//get current timestamp
+	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
+
 	spin_lock_irqsave(&p_dev->rlock, irq_flags);
 
 	for(i=0; i<MAX_IO_NUMBER; i++) {
@@ -275,7 +274,6 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	p_stat->level = new_level;
 
 	//calculate width and update stop flag
-	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
 	if(p_stat->stopped) {
 		//avoid very long pulse
 		t_width = ktime_set(0, 0);
@@ -298,7 +296,7 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	p_stat->last_edge = t_current;
 
 	//if there's part of the pulse in last timer cycle, add it
-	if(ktime_to_us(p_stat->last_cycle) != 0) {
+	if(ktime_to_ns(p_stat->last_cycle) != 0) {
 		t_width = ktime_add(t_width, p_stat->last_cycle);
 		p_stat->last_cycle = ktime_set(0, 0);
 	}
@@ -468,17 +466,18 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			for(j=0; j<get_io_stat.n_ios; j++) {
 				for(i=0; i<MAX_IO_NUMBER; i++) {
 					p_stat = &(p_dev->io_stats[i]);
-					if(p_stat->gpio == get_io_stat.io_stat_user[j].gpio
-						&& p_stat->used) {
+					if(p_stat->gpio == get_io_stat.io_stat_user[j].gpio && p_stat->used) {
 						if(!p_stat->stopped) {
-							pulse_reader_filter_and_calc(p_stat);
+							pulse_reader_filter_and_calc(
+								p_stat, &(get_io_stat.io_stat_user[j].duty), &(get_io_stat.io_stat_user[j].cycle));
 #ifdef PULSE_READER_DEBUG
 							printk(KERN_DEBUG "pulse_reader_ioctl gpio=%u, duty=%u, cycle=%u\n",
-								p_stat->gpio, p_stat->duty, p_stat->cycle);
+								p_stat->gpio, get_io_stat.io_stat_user[j].duty, get_io_stat.io_stat_user[j].cycle);
 #endif
+						} else {
+							get_io_stat.io_stat_user[j].duty = 0;
+							get_io_stat.io_stat_user[j].cycle = 0;
 						}
-						get_io_stat.io_stat_user[j].duty = p_stat->duty;
-						get_io_stat.io_stat_user[j].cycle = p_stat->cycle;
 						break;
 					}
 				}
