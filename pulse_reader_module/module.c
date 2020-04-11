@@ -30,7 +30,7 @@
 
 //this is the max allowed median filter window size
 #define	MAX_FILTER_WINDOW_SIZE		48
-#define	MIN_FILTER_WINDOW_SIZE		3	
+#define	MIN_FILTER_WINDOW_SIZE		1//no filter
 #define	DEFALT_FILTER_WINDOW_SIZE	3
 
 #define	MAX_CALCULATE_PERIOD			1000//in ms
@@ -156,14 +156,19 @@ static void pulse_reader_filter_and_calc(io_stat_t *p_stat, uint32_t *duty, uint
 		(uint32_t)ktime_to_us(p_stat->pulse_n[4]));
 #endif
 
-	//run median filter
-	sort((void*)p_stat->pulse_p, p_stat->filter_win_size, sizeof(ktime_t), pulse_reader_sort_cmp_func, NULL);
-	sort((void*)p_stat->pulse_n, p_stat->filter_win_size, sizeof(ktime_t), pulse_reader_sort_cmp_func, NULL);
+	if(p_stat->filter_win_size > 1) {
+		//run median filter
+		sort((void*)p_stat->pulse_p, p_stat->filter_win_size, sizeof(ktime_t), pulse_reader_sort_cmp_func, NULL);
+		sort((void*)p_stat->pulse_n, p_stat->filter_win_size, sizeof(ktime_t), pulse_reader_sort_cmp_func, NULL);
 
-	//get the median value and calculate cycle
-	*duty = ktime_to_ns(p_stat->pulse_p[p_stat->filter_win_size/2]);
-	*cycle = ktime_to_ns(ktime_add(p_stat->pulse_p[p_stat->filter_win_size/2],
-		p_stat->pulse_n[p_stat->filter_win_size/2]));
+		//get the median value and calculate cycle
+		*duty = ktime_to_ns(p_stat->pulse_p[p_stat->filter_win_size/2]);
+		*cycle = ktime_to_ns(ktime_add(p_stat->pulse_p[p_stat->filter_win_size/2],
+			p_stat->pulse_n[p_stat->filter_win_size/2]));
+	} else {
+		*duty = ktime_to_ns(p_stat->pulse_p[0]);
+		*cycle = ktime_to_ns(ktime_add(p_stat->pulse_p[0], p_stat->pulse_n[0]));
+	}
 
 #ifdef PULSE_READER_DEBUG
 	printk(KERN_DEBUG  "pulse_reader_filter_and_calc after p-n=%u-%u %u-%u %u-%u %u-%u %u-%u\n",
