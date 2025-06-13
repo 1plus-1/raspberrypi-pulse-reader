@@ -1,27 +1,23 @@
 # raspberrypi-pulse-reader
 RaspberryPi kernel driver for reading PPM/PWM duty and cycle. Say if you want to build a car with pi and don't want an additional Arduino board for reading motor speed feedback and RC PPM, you can used this driver.
 
-This module has been tested with Raspberry Pi 2 Model B and Raspberry Pi 4 Model B with Rasbian on different kernel versions.
+This module has been tested with Raspberry Pi 2 Model B and Raspberry Pi 4 Model B with Raspberry Pi OS + kernel 6.6.51.
 
 ## How to build
-- If coincidently you're having 4.19.97 or 5.4.51 kernel installed then just skip to the Usage part. The .ko files are already provided as pulse_reader_[kernel version].ko in root folder.
-
-  ### Compile on Pi
-  - Clone the source code to pi and run following commands(for Raspbian only).
+### Compile on Pi
+- Clone the source code to pi and run following commands.
 	```
-    sudo apt-get install build-essential raspberrypi-kernel-headers
-    cd /home/user/raspberrypi-pulse-reader/pulse_reader_module
-    make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
-    ```
-
-  ### Cross Compiling
-  - Download [kernel](https://github.com/raspberrypi/linux). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
-  - Follow the [instruction](https://www.raspberrypi.org/documentation/linux/kernel/building.md) to build the kernel.
-  - Clone the source code of this repo and run below command to build the .ko file
+	sudo apt update && sudo apt install build-essential raspberrypi-kernel-headers -y
+	cd raspberrypi-pulse-reader/pulse_reader_module
+	make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
 	```
-  	make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
+### Cross Compiling
+- Download [kernel](https://github.com/raspberrypi/linux). Make sure the same kernel version is downloaded(check the VERSION in root make file of kernel source and compare with "uname -r" output of your pi). 
+- Follow the [instruction](https://www.raspberrypi.org/documentation/linux/kernel/building.md) to build the kernel.
+- Clone the source code of this repo and run below command to build the .ko file
 	```
-
+	make KERNEL=<kernel folder> ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
+	```
 ## Usage
 - Copy pulse_reader.ko to pi and run insmod:
 	```

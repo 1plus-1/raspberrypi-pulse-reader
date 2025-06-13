@@ -76,7 +76,7 @@ typedef struct
 	bool stopped;
 } io_stat_t;
 
-struct pulse_reader_dev_t {
+struct pulse_reader_data_t {
 	struct cdev cdev;
 
 	spinlock_t rlock;
@@ -88,14 +88,14 @@ struct pulse_reader_dev_t {
 };
 
 static struct class *pulse_reader_class;
-static struct pulse_reader_dev_t *pulse_reader_dev;
+static struct pulse_reader_data_t *pulse_reader_data;
 
 static int pulse_reader_major;
 static int pulse_reader_minor;
 
 int pulse_reader_open(struct inode *inode, struct file *filp)
 {
-	struct pulse_reader_dev_t *p_dev;
+	struct pulse_reader_data_t *p_data;
 	int num = MINOR(inode->i_rdev);
 
 	if (num != pulse_reader_minor) {
@@ -104,10 +104,10 @@ int pulse_reader_open(struct inode *inode, struct file *filp)
 	}
 
 	if ( !filp->private_data ) {
-		p_dev = pulse_reader_dev;
-		filp->private_data = p_dev;
+		p_data = pulse_reader_data;
+		filp->private_data = p_data;
 	} else {
-		p_dev = (struct pulse_reader_dev_t*) filp->private_data;
+		p_data = (struct pulse_reader_data_t*) filp->private_data;
 	}
 
 	return 0;
@@ -188,18 +188,18 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 {
 	uint32_t i;
 	unsigned long irq_flags;
-	struct pulse_reader_dev_t *p_dev =
-		container_of(timer, struct pulse_reader_dev_t, pulse_timer);
+	struct pulse_reader_data_t *p_data =
+		container_of(timer, struct pulse_reader_data_t, pulse_timer);
 	ktime_t t_current;
 
 	//get current time
-	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
+	t_current = hrtimer_cb_get_time(&p_data->pulse_timer);
 
-	spin_lock_irqsave(&p_dev->rlock, irq_flags);
+	spin_lock_irqsave(&p_data->rlock, irq_flags);
 	for(i=0; i<MAX_IO_NUMBER; i++) {
 		io_stat_t *p_stat;
 
-		p_stat = &(p_dev->io_stats[i]);
+		p_stat = &(p_data->io_stats[i]);
 
 		if(!(p_stat->used) || p_stat->stopped)
 			continue;
@@ -212,7 +212,7 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 
 		if(ktime_to_ns(p_stat->last_cycle) != 0) {
 			//none zero means there's no edge in last period
-			p_stat->last_cycle = ktime_add(ms_to_ktime(p_dev->calculate_period), p_stat->last_cycle);
+			p_stat->last_cycle = ktime_add(ms_to_ktime(p_data->calculate_period), p_stat->last_cycle);
 			if(ktime_compare(p_stat->last_cycle, ms_to_ktime(MAX_PULSE_WIDTH)) > 0) {
 				//pulse stopped, reset data and set stop flag
 				pulse_reader_stat_reset(p_stat);
@@ -235,10 +235,10 @@ static enum hrtimer_restart pulse_reader_timer_cb(struct hrtimer *timer)
 			(uint32_t)ktime_to_us(p_stat->last_edge));
 #endif
 	}
-	spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+	spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 
 	//restart timer
-	hrtimer_forward_now(&p_dev->pulse_timer, ms_to_ktime(p_dev->calculate_period));
+	hrtimer_forward_now(&p_data->pulse_timer, ms_to_ktime(p_data->calculate_period));
 	return HRTIMER_RESTART;
 }
 
@@ -248,31 +248,31 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 	io_stat_t *p_stat;
 	unsigned long irq_flags;
 	ktime_t t_current, t_width;
-	struct pulse_reader_dev_t *p_dev = (struct pulse_reader_dev_t *) dev_id;
+	struct pulse_reader_data_t *p_data = (struct pulse_reader_data_t *) dev_id;
 	uint8_t new_level;
 
 	//get current timestamp
-	t_current = hrtimer_cb_get_time(&p_dev->pulse_timer);
+	t_current = hrtimer_cb_get_time(&p_data->pulse_timer);
 
-	spin_lock_irqsave(&p_dev->rlock, irq_flags);
+	spin_lock_irqsave(&p_data->rlock, irq_flags);
 
 	for(i=0; i<MAX_IO_NUMBER; i++) {
-		if(p_dev->io_stats[i].irq == irq
-			&& p_dev->io_stats[i].used)
+		if(p_data->io_stats[i].irq == irq
+			&& p_data->io_stats[i].used)
 			break;
 	}
 	if(i == MAX_IO_NUMBER) {
-		spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+		spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 		printk(KERN_ERR "pulse_reader_io_interrupt unknown irq %d\n", irq);
 		return IRQ_NONE;
 	}
-	p_stat = &(p_dev->io_stats[i]);
+	p_stat = &(p_data->io_stats[i]);
 
 	//check and ignore the interrupt
 	//in case it generates fake ones while there's no actual edge
 	new_level = gpio_get_value(p_stat->gpio);
 	if(p_stat->level == new_level) {
-		spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+		spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 		return IRQ_HANDLED;
 	}
 	p_stat->level = new_level;
@@ -324,7 +324,7 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 		printk(KERN_ERR "pulse_reader_io_interrupt gpio_get_value returns %d!\n", p_stat->level);
 	}
 
-	spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+	spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 
 	return IRQ_HANDLED;
 }
@@ -333,7 +333,7 @@ static irqreturn_t pulse_reader_io_interrupt(int irq, void *dev_id)
 static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	unsigned long irq_flags;
-	struct pulse_reader_dev_t *p_dev = (struct pulse_reader_dev_t *) file->private_data;
+	struct pulse_reader_data_t *p_data = (struct pulse_reader_data_t *) file->private_data;
 
 	switch (cmd)
 	{
@@ -348,14 +348,14 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			if(!gpio_is_valid(add_io.gpio))
 				return -EFAULT;
 
-			spin_lock_irqsave(&p_dev->rlock, irq_flags);
+			spin_lock_irqsave(&p_data->rlock, irq_flags);
 
 			//repeat adding check
 			for(i=0; i<MAX_IO_NUMBER; i++) {
-				if(p_dev->io_stats[i].gpio == add_io.gpio
-					&& p_dev->io_stats[i].used) {
+				if(p_data->io_stats[i].gpio == add_io.gpio
+					&& p_data->io_stats[i].used) {
 					//already added, just reuse
-					spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+					spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 					printk(KERN_INFO "pulse_reader_ioctl request ADD_IO io already added\n");
 					return 0;
 				}
@@ -363,11 +363,11 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 
 			//check available item if IO was not added
 			for(i=0; i<MAX_IO_NUMBER; i++) {
-				if(!(p_dev->io_stats[i].used))
+				if(!(p_data->io_stats[i].used))
 					break;
 			}
 			if(i == MAX_IO_NUMBER) {
-				spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+				spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 				printk(KERN_ERR "pulse_reader_ioctl ADD_IO exceed max io number\n");
 				return -EFAULT;
 			}
@@ -375,38 +375,38 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			//request gpio
 			ret = gpio_request(add_io.gpio, "pulse_reader");
 			if(ret) {
-				spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+				spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 				printk(KERN_ERR "pulse_reader_ioctl ADD_IO request io error\n");
 				return ret;
 			}
 			gpio_direction_input(add_io.gpio);
-			p_dev->io_stats[i].gpio = add_io.gpio;
+			p_data->io_stats[i].gpio = add_io.gpio;
 
 			//request irq
 			io_irq = gpio_to_irq(add_io.gpio);
 			ret = request_irq(io_irq, pulse_reader_io_interrupt,
-				IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, "pulse_reader_io_interrupt", p_dev);
+				IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, "pulse_reader_io_interrupt", p_data);
 			if(ret) {
-				spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+				spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 				printk(KERN_ERR "pulse_reader_ioctl ADD_IO can not get irq\n");
 				return ret;
 			}
-			p_dev->io_stats[i].irq = io_irq;
+			p_data->io_stats[i].irq = io_irq;
 
 			//set filter window size
 			if(add_io.filter_win_size > MAX_FILTER_WINDOW_SIZE)
 				add_io.filter_win_size = MAX_FILTER_WINDOW_SIZE;
 			if(add_io.filter_win_size < MIN_FILTER_WINDOW_SIZE)
 				add_io.filter_win_size = MIN_FILTER_WINDOW_SIZE;
-			p_dev->io_stats[i].filter_win_size = add_io.filter_win_size;
+			p_data->io_stats[i].filter_win_size = add_io.filter_win_size;
 
 			//reset data, this must be called post to gpio_request
-			pulse_reader_stat_reset(&(p_dev->io_stats[i]));
+			pulse_reader_stat_reset(&(p_data->io_stats[i]));
 
 			//set used flag
-			p_dev->io_stats[i].used = true;
+			p_data->io_stats[i].used = true;
 
-			spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+			spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 		}
 		break;
 	case REMOVE_IO:
@@ -416,24 +416,24 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			if(copy_from_user(&gpio, (void *)arg, sizeof(uint32_t)))
 				return -EFAULT;
 
-			spin_lock_irqsave(&p_dev->rlock, irq_flags);
+			spin_lock_irqsave(&p_data->rlock, irq_flags);
 
 			for(i=0; i<MAX_IO_NUMBER; i++) {
-				if(p_dev->io_stats[i].gpio == gpio
-					&& p_dev->io_stats[i].used) {
-					free_irq(p_dev->io_stats[i].irq, p_dev);
-					gpio_free(p_dev->io_stats[i].gpio);
-					p_dev->io_stats[i].used = false;
+				if(p_data->io_stats[i].gpio == gpio
+					&& p_data->io_stats[i].used) {
+					free_irq(p_data->io_stats[i].irq, p_data);
+					gpio_free(p_data->io_stats[i].gpio);
+					p_data->io_stats[i].used = false;
 					break;
 				}
 			}
 			if(i == MAX_IO_NUMBER) {
-				spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+				spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 				printk(KERN_ERR "pulse_reader_ioctl io not added %d\n", gpio);
 				return -EFAULT;
 			}
 
-			spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+			spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 		}
 		break;
 	case SET_CAL_PERIOD:
@@ -448,13 +448,13 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			if(period < MIN_CALCULATE_PERIOD)
 				period = MIN_CALCULATE_PERIOD;
 
-			spin_lock_irqsave(&p_dev->rlock, irq_flags);
-			p_dev->calculate_period = period;
+			spin_lock_irqsave(&p_data->rlock, irq_flags);
+			p_data->calculate_period = period;
 			for(i=0; i<MAX_IO_NUMBER; i++)
-				pulse_reader_stat_reset(&p_dev->io_stats[i]);
-			hrtimer_cancel(&p_dev->pulse_timer);
-			hrtimer_start(&p_dev->pulse_timer, ms_to_ktime(p_dev->calculate_period), HRTIMER_MODE_REL);
-			spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+				pulse_reader_stat_reset(&p_data->io_stats[i]);
+			hrtimer_cancel(&p_data->pulse_timer);
+			hrtimer_start(&p_data->pulse_timer, ms_to_ktime(p_data->calculate_period), HRTIMER_MODE_REL);
+			spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 		}
 		break;
 	case GET_IO_STAT:
@@ -466,10 +466,10 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			if(copy_from_user(&get_io_stat, (void *)arg, sizeof(get_io_stat_t)))
 				return -EFAULT;
 
-			spin_lock_irqsave(&p_dev->rlock, irq_flags);
+			spin_lock_irqsave(&p_data->rlock, irq_flags);
 			for(j=0; j<get_io_stat.n_ios; j++) {
 				for(i=0; i<MAX_IO_NUMBER; i++) {
-					p_stat = &(p_dev->io_stats[i]);
+					p_stat = &(p_data->io_stats[i]);
 					if(p_stat->gpio == get_io_stat.io_stat_user[j].gpio && p_stat->used) {
 						if(!p_stat->stopped) {
 							pulse_reader_filter_and_calc(
@@ -486,7 +486,7 @@ static long pulse_reader_ioctl(struct file *file, unsigned int cmd, unsigned lon
 					}
 				}
 			}
-			spin_unlock_irqrestore(&p_dev->rlock, irq_flags);
+			spin_unlock_irqrestore(&p_data->rlock, irq_flags);
 
 			if(copy_to_user((void *)arg, &get_io_stat, sizeof(get_io_stat_t)))
 				return -EFAULT;
@@ -536,26 +536,26 @@ int pulse_reader_init(void)
 	device_create(pulse_reader_class, NULL,
 		MKDEV(pulse_reader_major, pulse_reader_minor), NULL, "pulse_reader");
 
-	pulse_reader_dev = kmalloc(sizeof(struct pulse_reader_dev_t), GFP_KERNEL);
-	if (!pulse_reader_dev)
+	pulse_reader_data = kmalloc(sizeof(struct pulse_reader_data_t), GFP_KERNEL);
+	if (!pulse_reader_data)
 	{
 		result = -ENOMEM;
 		printk(KERN_ERR "pulse_reader_init kmalloc failed\n");
 		goto fail_malloc;
 	}
-	memset(pulse_reader_dev, 0, sizeof(struct pulse_reader_dev_t));
+	memset(pulse_reader_data, 0, sizeof(struct pulse_reader_data_t));
 
-	spin_lock_init(&pulse_reader_dev->rlock);
-	pulse_reader_dev->calculate_period = DEFALT_CALCULATE_PERIOD;//default period is 10ms
-	hrtimer_init(&pulse_reader_dev->pulse_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	pulse_reader_dev->pulse_timer.function = pulse_reader_timer_cb;
-	hrtimer_start(&pulse_reader_dev->pulse_timer,
-		ms_to_ktime(pulse_reader_dev->calculate_period), HRTIMER_MODE_REL);
+	spin_lock_init(&pulse_reader_data->rlock);
+	pulse_reader_data->calculate_period = DEFALT_CALCULATE_PERIOD;//default period is 10ms
+	hrtimer_init(&pulse_reader_data->pulse_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	pulse_reader_data->pulse_timer.function = pulse_reader_timer_cb;
+	hrtimer_start(&pulse_reader_data->pulse_timer,
+		ms_to_ktime(pulse_reader_data->calculate_period), HRTIMER_MODE_REL);
 
-	cdev_init(&pulse_reader_dev->cdev, &pulse_reader_fops);
-	pulse_reader_dev->cdev.owner = THIS_MODULE;
-	pulse_reader_dev->cdev.ops = &pulse_reader_fops;
-	err = cdev_add(&pulse_reader_dev->cdev, devno, 1);
+	cdev_init(&pulse_reader_data->cdev, &pulse_reader_fops);
+	pulse_reader_data->cdev.owner = THIS_MODULE;
+	pulse_reader_data->cdev.ops = &pulse_reader_fops;
+	err = cdev_add(&pulse_reader_data->cdev, devno, 1);
 	if (err)
 		printk(KERN_ERR "pulse_reader_setup_cdev Error %d adding CDEV%d", err, 0);
 
@@ -573,20 +573,20 @@ void pulse_reader_exit(void)
 {
     dev_t devno = MKDEV(pulse_reader_major, pulse_reader_minor);
 
-    if (pulse_reader_dev) {
+    if (pulse_reader_data) {
         int i;
-        hrtimer_cancel(&pulse_reader_dev->pulse_timer);
+        hrtimer_cancel(&pulse_reader_data->pulse_timer);
         for (i = 0; i < MAX_IO_NUMBER; i++) {
-            io_stat_t *p_stat = &(pulse_reader_dev->io_stats[i]);
+            io_stat_t *p_stat = &(pulse_reader_data->io_stats[i]);
             if (p_stat->used) {
-                free_irq(p_stat->irq, pulse_reader_dev);
+                free_irq(p_stat->irq, pulse_reader_data);
                 gpio_free(p_stat->gpio);
             }
         }
 
-        cdev_del(&pulse_reader_dev->cdev);
-        kfree(pulse_reader_dev);
-        pulse_reader_dev = NULL;
+        cdev_del(&pulse_reader_data->cdev);
+        kfree(pulse_reader_data);
+        pulse_reader_data = NULL;
     }
 
     if (pulse_reader_class) {
