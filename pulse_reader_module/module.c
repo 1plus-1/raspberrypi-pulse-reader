@@ -15,32 +15,29 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 
-//#define PULSE_READER_DEBUG
-
-#define PULSE_READER_MAJOR		240
-#define PULSE_READER_MINOR		0
+// #define PULSE_READER_DEBUG
 
 //maxium io supported
-#define	MAX_IO_NUMBER		10
+#define	MAX_IO_NUMBER				10
 
 //max pulse width that can be detected
 //it must longer than the period of any pwm monitored
 //the pulse over limit would cause buffer clear to 0
-#define	MAX_PULSE_WIDTH	30//in ms
+#define	MAX_PULSE_WIDTH				30//in ms
 
 //this is the max allowed median filter window size
 #define	MAX_FILTER_WINDOW_SIZE		48
 #define	MIN_FILTER_WINDOW_SIZE		1//no filter
 #define	DEFALT_FILTER_WINDOW_SIZE	3
 
-#define	MAX_CALCULATE_PERIOD			1000//in ms
-#define	MIN_CALCULATE_PERIOD			10
+#define	MAX_CALCULATE_PERIOD		1000//in ms
+#define	MIN_CALCULATE_PERIOD		10
 #define	DEFALT_CALCULATE_PERIOD		10
 
-#define	ADD_IO				0x7B01
-#define	REMOVE_IO			0x7B02
-#define	SET_CAL_PERIOD	0x7B03//set calculate_period in ms
-#define	GET_IO_STAT		0x7B04
+#define	ADD_IO						0x7B01
+#define	REMOVE_IO					0x7B02
+#define	SET_CAL_PERIOD				0x7B03//set calculate_period in ms
+#define	GET_IO_STAT					0x7B04
 
 typedef struct
 {
@@ -91,15 +88,17 @@ struct pulse_reader_dev_t {
 };
 
 static struct class *pulse_reader_class;
+static struct pulse_reader_dev_t *pulse_reader_dev;
 
-struct pulse_reader_dev_t *pulse_reader_dev;
+static int pulse_reader_major;
+static int pulse_reader_minor;
 
 int pulse_reader_open(struct inode *inode, struct file *filp)
 {
 	struct pulse_reader_dev_t *p_dev;
 	int num = MINOR(inode->i_rdev);
 
-	if (num != PULSE_READER_MINOR) {
+	if (num != pulse_reader_minor) {
 		printk(KERN_ERR "pulse_reader_open open error\n");
 		return -ENODEV;
 	}
@@ -508,41 +507,40 @@ static const struct file_operations pulse_reader_fops = {
 	.release = pulse_reader_release,
 };
 
-static void pulse_reader_setup_cdev(struct pulse_reader_dev_t *p_dev, int index)
-{
-	int err, devno = MKDEV(PULSE_READER_MAJOR, index);
-
-	cdev_init(&p_dev->cdev, &pulse_reader_fops);
-	p_dev->cdev.owner = THIS_MODULE;
-	p_dev->cdev.ops = &pulse_reader_fops;
-	err = cdev_add(&p_dev->cdev, devno, 1);
-	if (err)
-		printk(KERN_ERR "pulse_reader_setup_cdev Error %d adding CDEV%d", err, index);
-}
-
 int pulse_reader_init(void)
 {
-	int result = -1;
-	dev_t devno = MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR);
+	int err, result = -1;
+	dev_t devno;
 
-	result = register_chrdev_region(devno, 1, "/dev/pulse_reader");
-	if (result < 0) {
-		printk(KERN_ERR "pulse_reader_init register failed!result=%d\n",result);
-		return result;
-	}
+	// Allocate a dynamic major number
+    result = alloc_chrdev_region(&devno, 0, 1, "pulse_reader");
+    if (result < 0) {
+        pr_err("pulse_reader_init failed to allocate char device region: %d\n", result);
+        return result;
+    }
+	// Store for later cleanup or device creation
+    pulse_reader_major = MAJOR(devno);
+    pulse_reader_minor = MINOR(devno);
 
-	pulse_reader_class = class_create(THIS_MODULE, "pulse_reader");
+	printk(KERN_DEBUG  "pulse_reader_init dev num major=%d, minor=%d\n",
+		pulse_reader_major, pulse_reader_minor);
+
+	pulse_reader_class = class_create("pulse_reader");
 	if (IS_ERR(pulse_reader_class)) {
 		result = PTR_ERR(pulse_reader_class);
-		goto fail_create_dev;
+		printk(KERN_ERR "pulse_reader_init class_create failed: %d\n", result);
+		goto fail_create_class;
 	}
+
+	// need to check the result of device_create
 	device_create(pulse_reader_class, NULL,
-		MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR), NULL, "pulse_reader");
+		MKDEV(pulse_reader_major, pulse_reader_minor), NULL, "pulse_reader");
 
 	pulse_reader_dev = kmalloc(sizeof(struct pulse_reader_dev_t), GFP_KERNEL);
 	if (!pulse_reader_dev)
 	{
-		result =  - ENOMEM;
+		result = -ENOMEM;
+		printk(KERN_ERR "pulse_reader_init kmalloc failed\n");
 		goto fail_malloc;
 	}
 	memset(pulse_reader_dev, 0, sizeof(struct pulse_reader_dev_t));
@@ -554,40 +552,50 @@ int pulse_reader_init(void)
 	hrtimer_start(&pulse_reader_dev->pulse_timer,
 		ms_to_ktime(pulse_reader_dev->calculate_period), HRTIMER_MODE_REL);
 
-	pulse_reader_setup_cdev(pulse_reader_dev, 0);
+	cdev_init(&pulse_reader_dev->cdev, &pulse_reader_fops);
+	pulse_reader_dev->cdev.owner = THIS_MODULE;
+	pulse_reader_dev->cdev.ops = &pulse_reader_fops;
+	err = cdev_add(&pulse_reader_dev->cdev, devno, 1);
+	if (err)
+		printk(KERN_ERR "pulse_reader_setup_cdev Error %d adding CDEV%d", err, 0);
 
 	return 0;
 
-fail_create_dev:
 fail_malloc:
+	device_destroy(pulse_reader_class, devno);
+	class_destroy(pulse_reader_class);
+fail_create_class:
 	unregister_chrdev_region(devno, 1);
 	return result;
 }
 
 void pulse_reader_exit(void)
 {
-	if(pulse_reader_dev)
-	{
-		int i;
+    dev_t devno = MKDEV(pulse_reader_major, pulse_reader_minor);
 
-		hrtimer_cancel(&pulse_reader_dev->pulse_timer);
+    if (pulse_reader_dev) {
+        int i;
+        hrtimer_cancel(&pulse_reader_dev->pulse_timer);
+        for (i = 0; i < MAX_IO_NUMBER; i++) {
+            io_stat_t *p_stat = &(pulse_reader_dev->io_stats[i]);
+            if (p_stat->used) {
+                free_irq(p_stat->irq, pulse_reader_dev);
+                gpio_free(p_stat->gpio);
+            }
+        }
 
-		for(i=0; i<MAX_IO_NUMBER; i++) {
-			io_stat_t *p_stat = &(pulse_reader_dev->io_stats[i]);
-			if(p_stat->used) {
-				free_irq(p_stat->irq, pulse_reader_dev);
-				gpio_free(p_stat->gpio);
-			}
-		}
+        cdev_del(&pulse_reader_dev->cdev);
+        kfree(pulse_reader_dev);
+        pulse_reader_dev = NULL;
+    }
 
-		device_destroy(pulse_reader_class, MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR));
-		class_destroy(pulse_reader_class);
+    if (pulse_reader_class) {
+		device_destroy(pulse_reader_class, devno);
+        class_destroy(pulse_reader_class);
+        pulse_reader_class = NULL;
+    }
 
-		cdev_del(&pulse_reader_dev->cdev);
-		kfree(pulse_reader_dev);
-		unregister_chrdev_region(MKDEV(PULSE_READER_MAJOR, PULSE_READER_MINOR), 1);
-		pulse_reader_dev = 0;
-	}
+    unregister_chrdev_region(devno, 1);
 }
 
 module_init(pulse_reader_init);
@@ -595,4 +603,3 @@ module_exit(pulse_reader_exit);
 
 MODULE_AUTHOR("Nick Liu");
 MODULE_LICENSE("GPL");
-
