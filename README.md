@@ -7,7 +7,7 @@ This module has been tested with Raspberry Pi 2 Model B and Raspberry Pi 4 Model
 ### Compile on Pi
 - Clone the source code to pi and run following commands.
 	```
-	# Nn Raspberry Pi OS
+	# On Raspberry Pi OS
 	sudo apt update && sudo apt install build-essential raspberrypi-kernel-headers -y
 
 	# On Ubuntu
