@@ -7,7 +7,12 @@ This module has been tested with Raspberry Pi 2 Model B and Raspberry Pi 4 Model
 ### Compile on Pi
 - Clone the source code to pi and run following commands.
 	```
+	# Nn Raspberry Pi OS
 	sudo apt update && sudo apt install build-essential raspberrypi-kernel-headers -y
+
+	# On Ubuntu
+	sudo apt update && sudo apt install build-essential linux-headers-$(uname -r) -y
+
 	cd raspberrypi-pulse-reader/pulse_reader_module
 	make -C /lib/modules/$(uname -r)/build M=$(pwd) modules
 	```
@@ -26,7 +31,7 @@ This module has been tested with Raspberry Pi 2 Model B and Raspberry Pi 4 Model
 - Or load module at system startup:
 	```
 	sudo cp pulse_reader.ko /lib/modules/$(uname -r)/
-	sudo echo pulse_reader > /etc/modules-load.d/pulse_reader.conf
+	echo pulse_reader | sudo tee /etc/modules-load.d/pulse_reader.conf
 	sudo depmod -a
 	sudo reboot
 	```
